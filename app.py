@@ -9,6 +9,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import io
 import base64
+import sqlite3
 
 # Configuración inicial de la página
 st.set_page_config(
@@ -76,6 +77,46 @@ def local_css():
     """, unsafe_allow_html=True)
 
 local_css()
+
+# Función para inicializar la base de datos
+def init_db():
+    conn = sqlite3.connect('data_storage.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS datasets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dataset_name TEXT,
+            data BLOB
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# Función para guardar un DataFrame en la base de datos
+def save_to_db(dataset_name, df):
+    conn = sqlite3.connect('data_storage.db')
+    cursor = conn.cursor()
+    # Convertir el DataFrame a bytes usando pickle
+    df_bytes = io.BytesIO()
+    df.to_pickle(df_bytes)
+    df_bytes.seek(0)
+    cursor.execute('''
+        INSERT INTO datasets (dataset_name, data) VALUES (?, ?)
+    ''', (dataset_name, df_bytes.getvalue()))
+    conn.commit()
+    conn.close()
+
+# Función para cargar un DataFrame desde la base de datos
+def load_from_db(dataset_name):
+    conn = sqlite3.connect('data_storage.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT data FROM datasets WHERE dataset_name = ?', (dataset_name,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        df_bytes = io.BytesIO(result[0])
+        return pd.read_pickle(df_bytes)
+    return None
 
 # Cache para funciones que procesan datos
 @st.cache_data
@@ -288,6 +329,12 @@ def main():
         with tab5:
             st.subheader("Exportar Datos")
             st.markdown(get_csv_download_link(df), unsafe_allow_html=True)
+
+    if df is not None:
+    # Guardar el DataFrame en la base de datos
+    dataset_name = file.name if file else "demo_dataset"
+    save_to_db(dataset_name, df)
+    st.success(f"Dataset '{dataset_name}' guardado en la base de datos.")
 
 def create_bar_chart(df, categorical_cols, numeric_cols):
     """Crea un gráfico de barras interactivo."""
